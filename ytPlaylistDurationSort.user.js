@@ -2,7 +2,7 @@
 // @name         YouTube Playlist Video Length Sorter
 // @namespace    https://github.com/f1amy/yt-playlist-length-sort
 // @homepageURL  https://github.com/f1amy/yt-playlist-length-sort
-// @version      1.1.5
+// @version      1.2.0
 // @description  Sort videos on YouTube playlist page by duration ASC or DESC
 // @author       F1amy
 // @downloadURL  https://raw.githubusercontent.com/f1amy/yt-playlist-length-sort/master/ytPlaylistDurationSort.user.js
@@ -14,19 +14,83 @@
 (function() {
     'use strict';
 
-    GM_registerMenuCommand('Sort videos by length ASC', async function() {
-        await sortVideos('asc');
+    GM_registerMenuCommand('Sort videos by length ASC [temp]', async function() {
+        await sortVideosTemporary('asc');
 
-        alert('Videos sorting done (ASC)!');
+        alert('Videos sorting done (ASC, temp)!');
     });
 
-    GM_registerMenuCommand('Sort videos by length DESC', async function() {
-        await sortVideos('desc');
+    GM_registerMenuCommand('Sort videos by length DESC [temp]', async function() {
+        await sortVideosTemporary('desc');
 
-        alert('Videos sorting done (DESC)!');
+        alert('Videos sorting done (DESC, temp)!');
     });
+
+    GM_registerMenuCommand('Sort videos by length ASC [save]', async function() {
+        await sortVideosAndSave('asc');
+
+        alert('Videos sorting done (ASC, saved)!');
+    });
+
+    GM_registerMenuCommand('Sort videos by length DESC [save]', async function() {
+        await sortVideosAndSave('desc');
+
+        alert('Videos sorting done (DESC, saved)!');
+    });
+
+    async function sortVideosTemporary(order) {
+      const ORDER = order;   // 'asc' = shortest first, 'desc' = longest first
+
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const getItems = () => Array.from(document.querySelectorAll('ytd-playlist-video-renderer'));
+
+      // 1. Scroll to load ALL videos
+      console.log('Loading all videos... (don\'t touch the page)');
+      let last = -1, stable = 0;
+      while (stable < 3) {
+        window.scrollTo(0, document.scrollingElement.scrollHeight);
+        await sleep(900);
+        const n = getItems().length;
+        if (n === last) { stable++; } else { stable = 0; console.log(`Loaded ${n}...`); }
+        last = n;
+      }
+      window.scrollTo(0, 0);
+
+      // 2. Read the duration off each video
+      const parseDuration = (el) => {
+        const sels = [
+          'ytd-thumbnail-overlay-time-status-renderer #text',
+          'ytd-thumbnail-overlay-time-status-renderer span',
+          '.badge-shape-wiz__text',
+          'badge-shape div',
+        ];
+        let text = '';
+        for (const s of sels) {
+          const node = el.querySelector(s);
+          if (node && /\d+:\d{2}/.test(node.textContent)) { text = node.textContent.trim(); break; }
+        }
+        if (!text) { const m = el.textContent.match(/\b(\d+:)?\d{1,2}:\d{2}\b/); if (m) text = m[0]; }
+        if (!text) return null;
+        return text.split(':').map(Number).reduce((acc, p) => acc * 60 + p, 0); // -> seconds
+      };
+
+      const items = getItems();
+      if (!items.length) { console.warn('No videos found. Are you on the playlist page?'); return; }
+
+      const data = items.map(el => ({ el, secs: parseDuration(el) }));
+      const withDur = data.filter(d => d.secs != null);
+      const noDur   = data.filter(d => d.secs == null); // shorts/live/unknown go to the end
+
+      withDur.sort((a, b) => ORDER === 'asc' ? a.secs - b.secs : b.secs - a.secs);
+
+      // 3. Reorder them on the page
+      const container = items[0].parentNode;
+      [...withDur, ...noDur].forEach(d => container.appendChild(d.el));
+
+      console.log(`Done. Sorted ${withDur.length} videos (${ORDER}). ${noDur.length} had no duration.`);
+    }
   
-    async function sortVideos(order) {
+    async function sortVideosAndSave(order) {
       // ===== CONFIG =====
       const ORDER     = order; // 'asc' = shortest first, 'desc' = longest first
       const SORT_ALL  = true;  // true = load every video first; false = only what's loaded
