@@ -11,13 +11,13 @@
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 
-(async function() {
+(function() {
     'use strict';
 
     GM_registerMenuCommand('Sort videos by length ASC', function() {
-        sortVideos('asc');
+        await sortVideos('asc');
 
-        alert('Videos sorting done');
+        await alert('Videos sorting done');
     });
 
     GM_registerMenuCommand('Sort videos by length ASC', function() {
@@ -26,7 +26,7 @@
         alert('Videos sorting done');
     });
   
-    function sortVideos(order) {
+    async function sortVideos(order) {
       // ===== CONFIG =====
       const ORDER     = order; // 'asc' = shortest first, 'desc' = longest first
       const SORT_ALL  = true;  // true = load every video first; false = only what's loaded
