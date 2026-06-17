@@ -6,7 +6,7 @@
 // @description  Sort videos on YouTube playlist page by duration ASC or DESC
 // @author       F1amy
 // @downloadURL  https://raw.githubusercontent.com/f1amy/yt-playlist-length-sort/master/ytPlaylistDurationSort.user.js
-// @match        https://*.youtube.com/playlist
+// @match        https://*.youtube.com/playlist*
 // @icon         https://youtube.com
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
