@@ -2,10 +2,10 @@
 // @name         YouTube Playlist Video Length Sorter
 // @namespace    https://github.com/f1amy/yt-playlist-length-sort
 // @homepageURL  https://github.com/f1amy/yt-playlist-length-sort
-// @version      1.2.0
+// @version      1.2.1
 // @description  Sort videos on YouTube playlist page by duration ASC or DESC
 // @author       F1amy
-// @downloadURL  https://raw.githubusercontent.com/f1amy/yt-playlist-length-sort/master/ytPlaylistDurationSort.user.js
+// @downloadURL  https://raw.githubusercontent.com/f1amy/yt-playlist-length-sort/main/ytPlaylistDurationSort.user.js
 // @match        https://*.youtube.com/playlist*
 // @icon         https://youtube.com
 // @grant        GM_registerMenuCommand
