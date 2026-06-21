@@ -2,7 +2,7 @@
 // @name         YouTube Playlist Video Length Sorter
 // @namespace    https://github.com/f1amy/yt-playlist-length-sort
 // @homepageURL  https://github.com/f1amy/yt-playlist-length-sort
-// @version      1.3.0
+// @version      1.3.1
 // @description  Sort videos on YouTube playlist page by duration ASC or DESC
 // @author       F1amy
 // @downloadURL  https://raw.githubusercontent.com/f1amy/yt-playlist-length-sort/main/ytPlaylistDurationSort.user.js
@@ -129,7 +129,13 @@
 
       const sleep = ms => new Promise(r => setTimeout(r, ms));
       let cancelled = false;
-      window.__stopSort = () => { cancelled = true; console.log('[yt-sort] Stopping after current move…'); };
+
+
+      // Resolve the REAL page window. With @grant GM_*, the script runs in a sandbox
+      // where the `window` identifier is a wrapper, not a true Window — passing it as a
+      // MouseEvent `view` throws, and properties set on it aren't visible to the console.
+      const REAL_WIN = (typeof unsafeWindow !== 'undefined' && unsafeWindow) || document.defaultView || window;
+      REAL_WIN.__stopSort = () => { cancelled = true; console.log('[yt-sort] Stopping after current move…'); };
 
       const SEC = 'ytd-item-section-renderer:first-of-type'; // first section = the playlist (excludes "recommended")
 
@@ -150,7 +156,15 @@
       };
 
       // --- drag simulation (same event sequence YouTube's own reorder responds to) ---
-      const fire = (type, el, x, y) => el.dispatchEvent(new MouseEvent(type, { view: window, bubbles: true, cancelable: true, clientX: x, clientY: y }));
+      // Use a real Window for `view` if the engine accepts it; otherwise omit it
+      // (the events still work — YouTube reads clientX/clientY and the target element).
+      let VIEW;
+      try { new MouseEvent('t', { view: REAL_WIN }); VIEW = REAL_WIN; } catch (e) { VIEW = undefined; }
+      const fire = (type, el, x, y) => {
+        const init = { bubbles: true, cancelable: true, clientX: x, clientY: y };
+        if (VIEW) init.view = VIEW;
+        el.dispatchEvent(new MouseEvent(type, init));
+      };
       const center = (el) => { const r = el.getBoundingClientRect(); return [Math.floor((r.left + r.right) / 2), Math.floor((r.top + r.bottom) / 2)]; };
       const drag = (from, to) => {
         const [x1, y1] = center(from), [x2, y2] = center(to);
