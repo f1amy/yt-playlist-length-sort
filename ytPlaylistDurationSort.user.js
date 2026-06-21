@@ -2,7 +2,7 @@
 // @name         YouTube Playlist Video Length Sorter
 // @namespace    https://github.com/f1amy/yt-playlist-length-sort
 // @homepageURL  https://github.com/f1amy/yt-playlist-length-sort
-// @version      1.3.1
+// @version      1.3.2
 // @description  Sort videos on YouTube playlist page by duration ASC or DESC
 // @author       F1amy
 // @downloadURL  https://raw.githubusercontent.com/f1amy/yt-playlist-length-sort/main/ytPlaylistDurationSort.user.js
@@ -14,7 +14,7 @@
 (function() {
     'use strict';
 
-    // -------- non-blocking toast (replaces alert) --------
+    // -------- non-blocking toast --------
     function toast(msg, ms = 3500) {
         let t = document.getElementById('__ytSortToast');
         if (!t) {
@@ -31,29 +31,6 @@
         t.style.opacity = '1';
         clearTimeout(t.__hide);
         t.__hide = setTimeout(() => { t.style.opacity = '0'; }, ms);
-    }
-
-    // -------- fix black thumbnails by re-pointing <img> at the real image --------
-    function reloadThumbnails(rows) {
-        for (const el of rows) {
-            const a = el.querySelector('a#thumbnail') || el.querySelector('a#video-title');
-            if (!a || !a.href) continue;
-
-            let id = null;
-            try { id = new URL(a.href, location.href).searchParams.get('v'); } catch (e) { /* ignore */ }
-            if (!id) { const m = a.href.match(/[?&]v=([\w-]{11})/); if (m) id = m[1]; }
-            if (!id) continue;
-
-            const img = el.querySelector('ytd-thumbnail img, yt-image img, yt-img-shadow img, img#img, img.yt-core-image');
-            if (!img) continue;
-
-            const cur = img.getAttribute('src') || '';
-            // only touch images that are blank / placeholder / pointing at the wrong video
-            if (!cur || cur.startsWith('data:') || !cur.includes(id)) {
-                if (img.hasAttribute('srcset')) img.removeAttribute('srcset');
-                img.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-            }
-        }
     }
 
     GM_registerMenuCommand('Sort videos by length ASC [temp]',  () => { sortVideosTemporary('asc'); });
@@ -110,9 +87,6 @@
       const ordered = [...withDur, ...noDur];
       const container = items[0].parentNode;
       ordered.forEach(d => container.appendChild(d.el));
-
-      // 4. Repaint thumbnails that YouTube unloaded during the scroll
-      reloadThumbnails(ordered.map(d => d.el));
 
       console.log(`[yt-sort] Done. Sorted ${withDur.length} videos (${ORDER}). ${noDur.length} had no duration.`);
       toast(`Sorted ${withDur.length} videos (${ORDER}). View-only — refresh the page to undo.`, 5000);
