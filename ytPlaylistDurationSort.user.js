@@ -2,7 +2,7 @@
 // @name         YouTube Playlist Video Length Sorter
 // @namespace    https://github.com/f1amy/yt-playlist-length-sort
 // @homepageURL  https://github.com/f1amy/yt-playlist-length-sort
-// @version      1.4.1
+// @version      1.5.0
 // @description  Sort videos on YouTube playlist page by duration ASC or DESC
 // @author       F1amy
 // @downloadURL  https://raw.githubusercontent.com/f1amy/yt-playlist-length-sort/main/ytPlaylistDurationSort.user.js
@@ -78,12 +78,13 @@
 
       // 1. Scroll to load ALL videos
       console.log('[yt-sort] Loading all videos... (don\'t touch the page)');
+      toast('Loading all videos… (don\'t touch the page)', 3000);
       let last = -1, stable = 0;
       while (stable < 3) {
         window.scrollTo(0, document.scrollingElement.scrollHeight);
         await sleep(900);
         const n = getItems().length;
-        if (n === last) { stable++; } else { stable = 0; console.log(`[yt-sort] Loaded ${n}...`); }
+        if (n === last) { stable++; } else { stable = 0; console.log(`[yt-sort] Loaded ${n}...`); toast(`Loading videos… ${n} so far`, 2500); }
         last = n;
       }
       window.scrollTo(0, 0);
@@ -107,7 +108,7 @@
       };
 
       const items = getItems();
-      if (!items.length) { console.warn('[yt-sort] No videos found. Are you on the playlist page?'); return; }
+      if (!items.length) { console.warn('[yt-sort] No videos found. Are you on the playlist page?'); toast('No videos found — are you on a playlist page?', 5000); return; }
 
       const data = items.map(el => ({ el, secs: parseDuration(el) }));
       const withDur = data.filter(d => d.secs != null);
@@ -142,7 +143,7 @@
       // where the `window` identifier is a wrapper, not a true Window — passing it as a
       // MouseEvent `view` throws, and properties set on it aren't visible to the console.
       const REAL_WIN = (typeof unsafeWindow !== 'undefined' && unsafeWindow) || document.defaultView || window;
-      REAL_WIN.__stopSort = () => { cancelled = true; console.log('[yt-sort] Stopping after current move…'); };
+      REAL_WIN.__stopSort = () => { cancelled = true; console.log('[yt-sort] Stopping after current move…'); toast('Stopping after the current move…', 3000); };
 
       const SEC = 'ytd-item-section-renderer:first-of-type'; // first section = the playlist (excludes "recommended")
 
@@ -171,6 +172,11 @@
         [...document.querySelectorAll(`${SEC} ytd-playlist-video-renderer`)]
           .map(row => ({ row, handle: row.querySelector('yt-icon#reorder'), id: videoId(row), secs: readSeconds(row) }));
 
+      // Re-find a row by its (stable) video id. Used when a held element gets detached
+      // mid-drag, and to confirm landings after YouTube rebuilds the list.
+      const findRowById = (id) =>
+        id ? ([...document.querySelectorAll(`${SEC} ytd-playlist-video-renderer`)].find(r => videoId(r) === id) || null) : null;
+
       // Sort key per row. Rows with no duration get pushed to the end in both orders.
       const keyOf = (secs) => secs == null ? (ORDER === 'asc' ? Infinity : -Infinity) : secs;
 
@@ -190,28 +196,91 @@
       // on the intended SIDE of that row regardless of which direction we're dragging from.
       const yFrac = (el, f) => { const r = el.getBoundingClientRect(); return Math.floor(r.top + (r.bottom - r.top) * f); };
 
-      // Move the dragged handle so its video lands immediately BEFORE / AFTER `toRow`.
-      // Choosing the side explicitly (rather than dropping on the row's centre) is what
-      // makes a long DOWNWARD move land in one drag instead of off-by-one.
-      const dragBeside = (fromHandle, toRow, where) => {
-        const x1 = cx(fromHandle), y1 = cy(fromHandle);
-        const x2 = cx(toRow),      y2 = yFrac(toRow, where === 'after' ? 0.85 : 0.15);
-        fire('mousemove', fromHandle, x1, y1); fire('mouseenter', fromHandle, x1, y1); fire('mouseover', fromHandle, x1, y1); fire('mousedown', fromHandle, x1, y1);
-        fire('dragstart', fromHandle, x1, y1); fire('drag', fromHandle, x1, y1); fire('mousemove', fromHandle, x1, y1); fire('drag', fromHandle, x2, y2); fire('mousemove', toRow, x2, y2);
-        fire('mouseenter', toRow, x2, y2); fire('dragenter', toRow, x2, y2); fire('mouseover', toRow, x2, y2); fire('dragover', toRow, x2, y2);
-        fire('drop', toRow, x2, y2); fire('dragend', fromHandle, x2, y2); fire('mouseup', fromHandle, x2, y2);
+      // ---------- viewport helpers + auto-scroll-while-dragging ----------
+      // THE one-drag-relocation fix. A long move (especially a downward one) drops onto a
+      // row that's far off-screen. Simulated events don't trigger the browser's native
+      // drag-autoscroll, so the drop coordinates landed on nothing and the move silently
+      // failed. We now scroll the destination into view *while holding the drag*, exactly
+      // like dragging a row to the edge of the screen by hand, before releasing.
+      const vh = () => REAL_WIN.innerHeight || document.documentElement.clientHeight || 800;
+      const vw = () => REAL_WIN.innerWidth  || document.documentElement.clientWidth  || 1024;
+      const clampX = (x) => Math.max(2,  Math.min(x, vw() - 2));
+      const clampY = (y) => Math.max(60, Math.min(y, vh() - 60));
+
+      const scrollIntoCenter = async (el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.scrollingElement.scrollTop + r.top - (vh() / 2 - r.height / 2);
+        document.scrollingElement.scrollTop = Math.max(0, top);
+        await sleep(150);
       };
 
-      // Exact event sequence of the original up-only sorter (drop onto the occupant's
-      // handle => the dragged video lands at that slot). Used by the safe fallback,
-      // so the fallback is byte-for-byte the behaviour that already works everywhere.
-      const dragOnto = (fromHandle, toHandle) => {
-        const x1 = cx(fromHandle), y1 = cy(fromHandle), x2 = cx(toHandle), y2 = cy(toHandle);
-        fire('mousemove', fromHandle, x1, y1); fire('mouseenter', fromHandle, x1, y1); fire('mouseover', fromHandle, x1, y1); fire('mousedown', fromHandle, x1, y1);
-        fire('dragstart', fromHandle, x1, y1); fire('drag', fromHandle, x1, y1); fire('mousemove', fromHandle, x1, y1); fire('drag', fromHandle, x2, y2); fire('mousemove', toHandle, x2, y2);
-        fire('mouseenter', toHandle, x2, y2); fire('dragenter', toHandle, x2, y2); fire('mouseover', toHandle, x2, y2); fire('dragover', toHandle, x2, y2);
-        fire('drop', toHandle, x2, y2); fire('dragend', fromHandle, x2, y2); fire('mouseup', fromHandle, x2, y2);
+      // Press the handle and begin the drag (first 7 beats of the original sequence).
+      const pressStart = (h) => {
+        const x = cx(h), y = cy(h);
+        fire('mousemove', h, x, y); fire('mouseenter', h, x, y); fire('mouseover', h, x, y); fire('mousedown', h, x, y);
+        fire('dragstart', h, x, y); fire('drag', h, x, y); fire('mousemove', h, x, y);
       };
+
+      // While the drag is held from `h`, scroll the page until getRow() sits comfortably
+      // in the viewport, keeping the drag alive at the scroll edge. Returns the live row.
+      async function revealWhileDragging(h, getRow) {
+        for (let i = 0; i < 60; i++) {
+          const row = getRow();
+          if (!row) return null;
+          const r = row.getBoundingClientRect();
+          const topSafe = 140, botSafe = vh() - 140;
+          if (r.top >= topSafe && r.bottom <= botSafe) return row;            // nicely visible → done
+          const down  = r.top > botSafe;                                      // target below the fold?
+          const edgeY = down ? vh() - 90 : 90;
+          const x     = clampX(cx(h));
+          const edgeEl = document.elementFromPoint(x, edgeY)?.closest('ytd-playlist-video-renderer') || row;
+          fire('drag', h, x, edgeY); fire('mousemove', edgeEl, x, edgeY); fire('dragover', edgeEl, x, edgeY); // keep drag alive
+          const before = document.scrollingElement.scrollTop;
+          document.scrollingElement.scrollTop += (down ? 1 : -1) * Math.floor(vh() * 0.5);
+          await sleep(110);
+          if (document.scrollingElement.scrollTop === before) return row;     // can't scroll further (top/bottom)
+        }
+        return getRow();
+      }
+
+      // Drop the dragged video immediately BEFORE / AFTER `toRow`. Choosing the side
+      // explicitly (rather than dropping on the row centre) is what makes a long move land
+      // in a single drag instead of off-by-one.
+      async function dragBeside(fromHandle, toRow, where) {
+        const toId = videoId(toRow);
+        await scrollIntoCenter(fromHandle);
+        pressStart(fromHandle);
+        await sleep(60);
+        const live = await revealWhileDragging(fromHandle, () =>
+          (toRow && toRow.isConnected) ? toRow : findRowById(toId));
+        const row = (live && live.isConnected) ? live : findRowById(toId);
+        const tgt = row || fromHandle;
+        const x   = clampX(cx(tgt));
+        const y   = clampY(row ? yFrac(row, where === 'after' ? 0.85 : 0.15) : cy(fromHandle));
+        fire('drag', fromHandle, x, y); fire('mousemove', tgt, x, y); fire('mouseenter', tgt, x, y);
+        fire('dragenter', tgt, x, y); fire('mouseover', tgt, x, y); fire('dragover', tgt, x, y);
+        await sleep(40); fire('dragover', tgt, x, y);
+        fire('drop', tgt, x, y); fire('dragend', fromHandle, x, y); fire('mouseup', fromHandle, x, y);
+      }
+
+      // Drop the dragged video ONTO `toHandle` (lands it at that row's slot). This is the
+      // exact final beat the original up-only sorter used; it's now wrapped with the same
+      // auto-scroll so the reliable fallback also works on long, off-screen moves.
+      async function dragOnto(fromHandle, toHandle) {
+        const toRow = toHandle.closest('ytd-playlist-video-renderer');
+        const toId  = videoId(toRow);
+        await scrollIntoCenter(fromHandle);
+        pressStart(fromHandle);
+        await sleep(60);
+        const liveRow = (await revealWhileDragging(fromHandle, () =>
+          (toRow && toRow.isConnected) ? toRow : findRowById(toId))) || findRowById(toId) || toRow;
+        const tgt = (liveRow && liveRow.querySelector('yt-icon#reorder')) || toHandle;
+        const x = clampX(cx(tgt)), y = clampY(cy(tgt));
+        fire('drag', fromHandle, x, y); fire('mousemove', tgt, x, y); fire('mouseenter', tgt, x, y);
+        fire('dragenter', tgt, x, y); fire('mouseover', tgt, x, y); fire('dragover', tgt, x, y);
+        await sleep(40); fire('dragover', tgt, x, y);
+        fire('drop', tgt, x, y); fire('dragend', fromHandle, x, y); fire('mouseup', fromHandle, x, y);
+      }
 
       // After a move, confirm the dragged video really ended up on the wanted side of its
       // neighbour. Returns true/false, or null when it can't tell (missing or duplicate
@@ -262,6 +331,8 @@
             return;
           }
 
+          toast(`Reliable mode (${ORDER.toUpperCase()}) — ${p}/${cur.length} sorted · ${moves} drag(s) done`, 4000);
+
           const fromHandle = desired[p].e.handle; // belongs at p, currently sitting below p
           const toHandle   = cur[p].handle;        // whoever is at p right now
 
@@ -272,7 +343,7 @@
 
           if (!fromHandle || !toHandle) { await sleep(SETTLE_MS); continue; }
 
-          dragOnto(fromHandle, toHandle); // up-move: lands exactly at slot p
+          await dragOnto(fromHandle, toHandle); // up-move: lands exactly at slot p
           moves++;
           if (moves % 10 === 0) console.log(`[yt-sort]   ${moves} moves (fallback)…`);
           await sleep(SETTLE_MS);
@@ -286,12 +357,13 @@
         // 1) Load all videos
         if (SORT_ALL) {
           console.log('[yt-sort] Loading all videos…');
+          toast('Loading all videos…', 3000);
           let last = -1, stable = 0;
           while (stable < 3 && !cancelled) {
             document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
             await sleep(SCROLL_MS);
             const n = getEntries().length;
-            if (n === last) stable++; else { stable = 0; console.log(`[yt-sort]   ${n} loaded…`); }
+            if (n === last) stable++; else { stable = 0; console.log(`[yt-sort]   ${n} loaded…`); toast(`Loading videos… ${n} so far`, 2500); }
             last = n;
           }
           document.scrollingElement.scrollTop = 0;
@@ -314,6 +386,7 @@
         const planKeep  = longestSortedKeepers(withHandle.map(e => keyOf(e.secs)), ORDER);
         const planMoves = withHandle.length - planKeep.filter(Boolean).length;
         console.log(`[yt-sort] Sorting ${withHandle.length} videos (${ORDER}) — about ${planMoves} drag move(s), the minimum. Run __stopSort() in the console to cancel.`);
+        toast(`Sorting ${withHandle.length} videos (${ORDER}) — about ${planMoves} drag move(s). Keep this tab focused.`, 5000);
 
         // 2) MINIMAL-MOVE sort.
         // Each pass: recompute the longest already-sorted run (its videos stay put) and
@@ -325,6 +398,7 @@
         // (e.g. a long upload sitting at the top of an ASC sort) is sent straight to the
         // end in a single downward drag instead of crawling down one place at a time.
         let moves = 0, bestKept = -1, stall = 0, failStreak = 0;
+        const total = withHandle.length;
 
         while (moves < MAX_MOVES && !cancelled) {
           // Re-read every pass: YouTube rebuilds the rows after each saved move.
@@ -339,6 +413,9 @@
             toast(`Done — sorted ${cur.length} videos (${ORDER}) and saved ✓`, 5000);
             return;
           }
+
+          // Live progress readout (the toast element updates in place each pass).
+          toast(`Sorting ${ORDER.toUpperCase()} — ${kept}/${cur.length} in place · ${cur.length - kept} to move · ${moves} drag(s) done`, 4000);
 
           // Progress guard: an effective move grows the kept run by 1. If it stops
           // growing, the drags aren't landing — hand off to the reliable fallback.
@@ -363,7 +440,7 @@
             neighbor = cur[li]; where = 'after';
           }
 
-          dragBeside(X.handle, neighbor.row, where); // lands X immediately before/after its neighbour
+          await dragBeside(X.handle, neighbor.row, where); // lands X immediately before/after its neighbour
           moves++;
           if (moves % 10 === 0) console.log(`[yt-sort]   ${moves} moves…`);
           await sleep(SETTLE_MS);
